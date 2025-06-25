@@ -1,7 +1,8 @@
 {
   "models": {
     "mistral": "N",
-    "fanar_rag": "Y",
+    "fanar_rag": "N",
+    "fanar_validated": "Y",
     "allam_7b": "N"
   },
   "paths": {

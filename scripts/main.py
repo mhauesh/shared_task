@@ -7,13 +7,15 @@ import yaml
 from scripts.models import (
     get_prediction_mistral,
     get_prediction_fanar,
-    get_prediction_allam
+    get_prediction_allam,
+    get_prediction_fanar_validated
 )
 
 # Mapping models to functions
 MODEL_FUNCTIONS = {
     "mistral": partial(get_prediction_mistral, model_version="mistral-saba-24b"),
     "fanar_rag": partial(get_prediction_fanar, model_version="Islamic-RAG"),
+    "fanar_validated": partial(get_prediction_fanar_validated, model_version="Islamic-RAG"),
     "allam_7b": partial(get_prediction_allam, model_version="ALLaM-AI/ALLaM-7B-Instruct-preview"),
 }
 
@@ -56,42 +58,37 @@ def predict_from_directory(config_path="../config.yaml") -> pd.DataFrame:
     input_dir, output_dir, selected_models = load_config(config_path)
     model_suffix = "_".join(selected_models)
     print(f"✅ Model selected: {selected_models[0]}")
-
     if not selected_models:
         return all_predictions_df
-
-    # Get model function (only one active model)
     models_to_evaluate = {model: MODEL_FUNCTIONS[model] for model in selected_models if model in MODEL_FUNCTIONS}
-
     for file in os.listdir(input_dir):
         if file.endswith(".csv") and "_prediction" not in file:
             try:
                 print(f"🚀 Processing file: {file}")
                 input_path = os.path.join(input_dir, file)
-                df = process_csv_file(input_path, models_to_evaluate)
+                df = process_csv_file(input_path, models_to_evaluate, config_path=config_path)
+                if df is None:
+                    print(f"⚠️ Skipping file {file} due to invalid format or error.")
+                    continue
                 all_predictions_df = pd.concat([all_predictions_df, df], ignore_index=True)
-
-                # Rename model column as 'prediction'
-                model_column = df.columns[-1]
-                df = df.rename(columns={model_column: 'prediction'})
-
-                # Reorder columns to place 'prediction' after 'level'
-                if 'level' in df.columns:
+                # Rename validated column as 'prediction' for output
+                model_name = list(models_to_evaluate.keys())[0]
+                if model_name + '_validated' in df.columns:
+                    df = df.rename(columns={model_name + '_validated': 'prediction'})
+                # Reorder columns to place 'prediction' after 'level' if present
+                if 'level' in df.columns and 'prediction' in df.columns:
                     cols = list(df.columns)
                     cols.remove('prediction')
                     level_idx = cols.index('level')
                     cols = cols[:level_idx+1] + ['prediction'] + cols[level_idx+1:]
                     df = df[cols]
-
-                # Add subtask suffix to filename
-                suffix = get_filename_suffix(df)
-                output_file = os.path.join(output_dir, f"{os.path.splitext(file)[0]}_{model_suffix}_subtask{suffix}_prediction.csv")
-                os.makedirs(os.path.dirname(output_file), exist_ok=True)
-
-                df.to_csv(output_file, index=False)
-                save_mcq_file(output_file)
-
+                # Only call get_filename_suffix if df is a DataFrame
+                if isinstance(df, pd.DataFrame):
+                    suffix = get_filename_suffix(df)
+                    output_file = os.path.join(output_dir, f"{os.path.splitext(file)[0]}_{model_suffix}_subtask{suffix}_prediction.csv")
+                    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+                    df.to_csv(output_file, index=False)
+                    save_mcq_file(output_file)
             except Exception as e:
                 print(f"❌ Error processing file {file}: {e}")
-
     return all_predictions_df

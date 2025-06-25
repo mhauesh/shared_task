@@ -5,6 +5,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from dotenv import load_dotenv
 from groq import Groq
+from scripts.validation import validate_fanar_answer
 
 # Load environment variables
 load_dotenv(override=True)
@@ -201,6 +202,49 @@ def get_prediction_mistral(
                 return cleaned_result
         except Exception as e:
             print(f"❌ Mistral Error: {e}")
+            return None
+
+    print("❌ Failed after retries.")
+    return None
+
+
+def get_prediction_fanar_validated(
+    question, choice1, choice2, choice3, choice4, choice5=None, choice6=None,
+    model_version="Islamic-RAG", max_retries=3
+):
+    """Inference using Fanar API, then validate the answer."""
+    if not fanar_api_key:
+        print("Fanar API key missing.")
+        return None
+
+    fanar_url = "https://api.fanar.qa/v1/chat/completions"
+    choices = pack_choices(choice1, choice2, choice3, choice4, choice5, choice6)
+    valid_responses = get_valid_responses(choice5, choice6)
+    prompt = generate_mcq_prompt(question, choices)
+
+    headers = {"Authorization": f"Bearer {fanar_api_key}", "Content-Type": "application/json"}
+    data = {"model": model_version, "messages": [{"role": "user", "content": prompt}]}
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = requests.post(fanar_url, json=data, headers=headers)
+            response_json = response.json()
+
+            if response.status_code == 200:
+                raw_result = response_json["choices"][0]["message"]["content"].strip().upper()
+                cleaned_result = clean_and_validate_response(raw_result, valid_responses)
+                if cleaned_result:
+                    print(f"✅ {question} | Fanar  | Prediction: {cleaned_result}")
+                    # Build options list for validation
+                    options = [c[1] for c in choices]
+                    validated, reason = validate_fanar_answer(question, options, cleaned_result)
+                    print(f"🔎 Fanar validated: {validated} ({reason})")
+                    return validated
+            else:
+                print(f"❌ Fanar API Error: {response.text}")
+                return None
+        except Exception as e:
+            print(f"❌ Fanar Error: {e}")
             return None
 
     print("❌ Failed after retries.")
