@@ -1,0 +1,11 @@
+{
+  "models": {
+    "mistral": "N",
+    "fanar_rag": "Y",
+    "allam_7b": "N"
+  },
+  "paths": {
+    "input_dir": "../data",
+    "output_dir": "../results/prediction"
+  }
+}

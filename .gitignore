@@ -1,0 +1,9 @@
+*.log
+*.tmp
+.env
+
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+config.json
+
