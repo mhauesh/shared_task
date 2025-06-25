@@ -15,10 +15,9 @@ from scripts.models import (
 MODEL_FUNCTIONS = {
     "mistral": partial(get_prediction_mistral, model_version="mistral-saba-24b"),
     "fanar_rag": partial(get_prediction_fanar, model_version="Islamic-RAG"),
-    "fanar_validated": partial(get_prediction_fanar_validated, model_version="Islamic-RAG"),
+    "fanar_validated": get_prediction_fanar_validated,  # ← Your new real-time validation
     "allam_7b": partial(get_prediction_allam, model_version="ALLaM-AI/ALLaM-7B-Instruct-preview"),
 }
-
 
 def load_config(config_path: str):
     """
@@ -66,7 +65,7 @@ def predict_from_directory(config_path="../config.yaml") -> pd.DataFrame:
             try:
                 print(f"🚀 Processing file: {file}")
                 input_path = os.path.join(input_dir, file)
-                df = process_csv_file(input_path, models_to_evaluate, config_path=config_path)
+                df = process_csv_file(input_path, models_to_evaluate)
                 if df is None:
                     print(f"⚠️ Skipping file {file} due to invalid format or error.")
                     continue
