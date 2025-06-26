@@ -8,14 +8,17 @@ from scripts.models import (
     get_prediction_mistral,
     get_prediction_fanar,
     get_prediction_allam,
-    get_prediction_fanar_validated
+    get_prediction_fanar_validated,           
+    get_prediction_fanar_validated_detailed   
 )
+
 
 # Mapping models to functions
 MODEL_FUNCTIONS = {
     "mistral": partial(get_prediction_mistral, model_version="mistral-saba-24b"),
     "fanar_rag": partial(get_prediction_fanar, model_version="Islamic-RAG"),
-    "fanar_validated": get_prediction_fanar_validated,  # ← Your new real-time validation
+    "fanar_validated": get_prediction_fanar_validated,           
+    "fanar_validated_detailed": get_prediction_fanar_validated_detailed,  
     "allam_7b": partial(get_prediction_allam, model_version="ALLaM-AI/ALLaM-7B-Instruct-preview"),
 }
 

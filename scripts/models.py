@@ -8,7 +8,6 @@ from groq import Groq
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from scripts.validation import validate_fanar_answer
 
 # Load environment variables
 load_dotenv(override=True)
@@ -20,23 +19,6 @@ client_fanar = openai.OpenAI(api_key=fanar_api_key, base_url="https://api.fanar.
 
 allam_tokenizer = None
 allam_model = None
-
-try:
-    from symbolic_calculator import SymbolicInheritanceCalculator
-    VALIDATOR_AVAILABLE = True
-    
-    # Initialize the validator (only once)
-    try:
-        validator = SymbolicInheritanceCalculator('results/prediction/enhanced_inheritance_rules.py')
-        print("✅ Symbolic validator loaded successfully")
-    except Exception as e:
-        print(f"⚠️ Could not load validator: {e}")
-        validator = None
-        VALIDATOR_AVAILABLE = False
-
-except Exception as e:
-    print(f"Error: {e}")
-
 
 def get_valid_responses(choice5, choice6):
     """Generate valid response set."""
@@ -227,24 +209,42 @@ def get_prediction_mistral(
     return None
 
 
+import sys
+import os
+
+try:
+    from symbolic_calculator import SymbolicInheritanceCalculator
+    
+    # Initialize validator
+    rules_path = 'results/prediction/enhanced_inheritance_rules.py'
+    symbolic_validator = SymbolicInheritanceCalculator(rules_path)
+    SYMBOLIC_VALIDATOR_AVAILABLE = True
+    print("✅ Symbolic inheritance validator initialized in models.py")
+    
+except Exception as e:
+    print(f"⚠️ Could not initialize symbolic validator in models.py: {e}")
+    symbolic_validator = None
+    SYMBOLIC_VALIDATOR_AVAILABLE = False
+
+
 def get_prediction_fanar_validated(question, choice1, choice2, choice3, choice4, choice5=None, choice6=None):
     """
-    Fanar API with real-time symbolic validation display
-    Shows original prediction vs validated prediction as it runs
+    Fanar LLM with real-time symbolic inheritance validation
+    Shows validation decisions as they happen
     """
     
-    # Step 1: Get original Fanar prediction (but suppress its print for cleaner output)
-    original_prediction = get_prediction_fanar(question, choice1, choice2, choice3, choice4, choice5, choice6)
+    # Step 1: Get original Fanar prediction
+    fanar_prediction = get_prediction_fanar(question, choice1, choice2, choice3, choice4, choice5, choice6)
     
-    if not original_prediction:
+    if not fanar_prediction:
         print("❌ Fanar prediction failed")
         return None
     
     # Step 2: Apply symbolic validation if available
-    if not VALIDATOR_AVAILABLE or not validator:
-        print(f"🔄 {question[:60]}{'...' if len(question) > 60 else ''}")
-        print(f"   Original: {original_prediction} (No validation available)")
-        return original_prediction
+    if not SYMBOLIC_VALIDATOR_AVAILABLE or not symbolic_validator:
+        print(f"🔄 {question[:70]}{'...' if len(question) > 70 else ''}")
+        print(f"   Fanar: {fanar_prediction} (No symbolic validation available)")
+        return fanar_prediction
     
     try:
         # Prepare options for validation
@@ -253,176 +253,191 @@ def get_prediction_fanar_validated(question, choice1, choice2, choice3, choice4,
             if choice is not None:
                 options.append(str(choice))
         
-        # Parse the question and family composition
-        family_composition = validator.extract_family_composition(question)
-        question_type = validator.classify_question_type(question)
-        target_heir = validator.identify_target_heir(question)
+        # Parse inheritance scenario
+        family_composition = symbolic_validator.extract_family_composition(question)
+        question_type = symbolic_validator.classify_question_type(question)
+        target_heir = symbolic_validator.identify_target_heir(question)
         
-        # Try to get expected answer from patterns
-        expected_answer = None
-        confidence = 0
-        
-        if family_composition:
-            expected_answer = validator.lookup_pattern_answer(family_composition, question_type, target_heir)
-            
-            # If we have a pattern match, get confidence
-            if expected_answer:
-                # Try to estimate confidence from the pattern data
-                family_key = tuple(sorted(family_composition.items()))
-                
-                # Check QA patterns first
-                if target_heir:
-                    qa_key = str((family_key, question_type, target_heir))
-                    if hasattr(validator, 'qa_patterns') and validator.qa_patterns and qa_key in validator.qa_patterns:
-                        pattern_data = validator.qa_patterns[qa_key]
-                        if isinstance(pattern_data, dict):
-                            confidence = pattern_data.get('confidence', 0)
-                
-                # Check scenario patterns as fallback
-                if confidence == 0:
-                    scenario_key = str((family_key, question_type))
-                    if hasattr(validator, 'scenario_patterns') and validator.scenario_patterns and scenario_key in validator.scenario_patterns:
-                        pattern_data = validator.scenario_patterns[scenario_key]
-                        if isinstance(pattern_data, dict):
-                            confidence = pattern_data.get('confidence', 0)
-        
-        # Display validation results in real-time
-        print(f"🔄 {question[:60]}{'...' if len(question) > 60 else ''}")
+        # Display question analysis
+        print(f"🔄 {question[:70]}{'...' if len(question) > 70 else ''}")
         
         if family_composition:
             family_str = ', '.join([f"{heir}:{count}" for heir, count in family_composition.items()])
-            print(f"   Family: {family_str}")
-            print(f"   Type: {question_type}" + (f" (asking about {target_heir})" if target_heir else ""))
+            print(f"   👥 Family: {family_str}")
+            print(f"   🎯 Type: {question_type}" + (f" → {target_heir}" if target_heir else ""))
         
-        # Decision logic and real-time display
-        if expected_answer and expected_answer != original_prediction:
-            if confidence > 0.7:  # High confidence correction
-                print(f"   Original: {original_prediction}")
-                print(f"   ✅ CORRECTED → {expected_answer} (confidence: {confidence:.2f})")
-                print(f"   Reason: High-confidence pattern match")
+        # Look up expected answer from training patterns
+        expected_answer = None
+        confidence = 0
+        reasoning = ""
+        
+        if family_composition:
+            expected_answer = symbolic_validator.lookup_pattern_answer(
+                family_composition, question_type, target_heir
+            )
+            
+            # Estimate confidence from pattern data
+            if expected_answer:
+                family_key = tuple(sorted(family_composition.items()))
+                
+                # Check QA patterns for confidence
+                if target_heir and hasattr(symbolic_validator, 'qa_patterns'):
+                    qa_key = str((family_key, question_type, target_heir))
+                    if hasattr(symbolic_validator, 'qa_patterns') and symbolic_validator.qa_patterns:
+                        for key, pattern_data in symbolic_validator.qa_patterns.items():
+                            if qa_key in key:
+                                if isinstance(pattern_data, dict):
+                                    confidence = pattern_data.get('confidence', 0)
+                                    reasoning = f"QA pattern (conf: {confidence:.2f})"
+                                break
+                
+                # Fallback to scenario patterns
+                if confidence == 0 and hasattr(symbolic_validator, 'scenario_patterns'):
+                    scenario_key = str((family_key, question_type))
+                    if hasattr(symbolic_validator, 'scenario_patterns') and symbolic_validator.scenario_patterns:
+                        for key, pattern_data in symbolic_validator.scenario_patterns.items():
+                            if scenario_key in key:
+                                if isinstance(pattern_data, dict):
+                                    confidence = pattern_data.get('confidence', 0.5)
+                                    reasoning = f"Scenario pattern (conf: {confidence:.2f})"
+                                break
+        
+        # Make validation decision and display result
+        print(f"   🤖 Fanar: {fanar_prediction}")
+        
+        if expected_answer and expected_answer != fanar_prediction:
+            if confidence > 0.75:  # High confidence correction
+                print(f"   ✅ CORRECTED -> {expected_answer}")
+                print(f"   📊 Reason: {reasoning} - High confidence override")
                 return expected_answer
-            elif confidence > 0.5:  # Medium confidence - show but don't correct
-                print(f"   Original: {original_prediction}")
-                print(f"   ⚠️ Pattern suggests {expected_answer} (confidence: {confidence:.2f}) - keeping original")
-                return original_prediction
-            else:
-                print(f"   Original: {original_prediction} ✓ (low confidence pattern)")
-                return original_prediction
-        elif expected_answer and expected_answer == original_prediction:
-            print(f"   Original: {original_prediction}")
-            print(f"   ✅ VALIDATED ✓ (pattern confirms)")
-            return original_prediction
+            elif confidence > 0.6:  # Medium confidence - show warning but keep original
+                print(f"   ⚠️  Pattern suggests {expected_answer} ({reasoning})")
+                print(f"   ✅ KEEPING original (medium confidence)")
+                return fanar_prediction
+            else:  # Low confidence - keep original
+                print(f"   ✅ VALIDATED (pattern suggests {expected_answer} but low confidence)")
+                return fanar_prediction
+        elif expected_answer and expected_answer == fanar_prediction:
+            print(f"   ✅ VALIDATED ✓ ({reasoning})")
+            return fanar_prediction
         else:
-            # No pattern found or family composition unclear
+            # No pattern found
             if family_composition:
-                print(f"   Original: {original_prediction} ✓ (no pattern available)")
+                print(f"   ✅ VALIDATED (no pattern available for this scenario)")
             else:
-                print(f"   Original: {original_prediction} ✓ (family unclear)")
-            return original_prediction
-    
+                print(f"   ✅ VALIDATED (non-inheritance question)")
+            return fanar_prediction
+
     except Exception as e:
-        print(f"🔄 {question[:60]}{'...' if len(question) > 60 else ''}")
-        print(f"   Original: {original_prediction} ✓ (validation error: {str(e)[:50]})")
-        return original_prediction
+        print(f"   🤖 Fanar: {fanar_prediction}")
+        print(f"   ❌ Validation error: {str(e)[:60]}...")
+        print(f"   ✅ KEEPING original")
+        return fanar_prediction
 
 def get_prediction_fanar_validated_detailed(question, choice1, choice2, choice3, choice4, choice5=None, choice6=None):
     """
-    More detailed validation output - use this if you want even more information
+    Detailed version with more verbose output for debugging
     """
     
-    # Get original prediction
-    original_prediction = get_prediction_fanar(question, choice1, choice2, choice3, choice4, choice5, choice6)
+    print("=" * 80)
+    print(f"QUESTION: {question}")
     
-    if not original_prediction:
+    # Get Fanar prediction
+    fanar_prediction = get_prediction_fanar(question, choice1, choice2, choice3, choice4, choice5, choice6)
+    
+    if not fanar_prediction:
+        print("❌ FANAR FAILED")
+        print("=" * 80)
         return None
     
-    if not VALIDATOR_AVAILABLE or not validator:
-        print(f"📝 QUESTION: {question}")
-        print(f"🤖 FANAR: {original_prediction} (No validation)")
-        print("─" * 80)
-        return original_prediction
+    print(f"🤖 FANAR PREDICTION: {fanar_prediction}")
+    
+    if not SYMBOLIC_VALIDATOR_AVAILABLE or not symbolic_validator:
+        print("⚠️ SYMBOLIC VALIDATION: Not available")
+        print("=" * 80)
+        return fanar_prediction
     
     try:
-        # Parse question
-        family_composition = validator.extract_family_composition(question)
-        question_type = validator.classify_question_type(question)
-        target_heir = validator.identify_target_heir(question)
+        # Parse scenario
+        family_composition = symbolic_validator.extract_family_composition(question)
+        question_type = symbolic_validator.classify_question_type(question)
+        target_heir = symbolic_validator.identify_target_heir(question)
         
-        print(f"📝 QUESTION: {question}")
-        print(f"👥 FAMILY: {family_composition}")
-        print(f"🎯 TYPE: {question_type}" + (f" → {target_heir}" if target_heir else ""))
-        print(f"🤖 FANAR: {original_prediction}")
+        print(f"👥 FAMILY COMPOSITION: {family_composition}")
+        print(f"🎯 QUESTION TYPE: {question_type}")
+        print(f"🔍 TARGET HEIR: {target_heir}")
         
-        # Get expected answer
-        expected_answer = validator.lookup_pattern_answer(family_composition, question_type, target_heir)
+        # Get pattern prediction
+        expected_answer = symbolic_validator.lookup_pattern_answer(
+            family_composition, question_type, target_heir if target_heir is not None else ""
+        )
         
-        if expected_answer:
-            if expected_answer != original_prediction:
-                print(f"🔍 PATTERN: {expected_answer}")
-                print(f"⚠️ MISMATCH DETECTED!")
-                
-                print(f"✅ FINAL: {expected_answer} (pattern overrides)")
-                print("─" * 80)
-                return expected_answer
-            else:
-                print(f"✅ VALIDATED: Pattern confirms {original_prediction}")
-                print("─" * 80)
-                return original_prediction
+        print(f"📊 PATTERN PREDICTION: {expected_answer}")
+        
+        if expected_answer and expected_answer != fanar_prediction:
+            print("⚠️ MISMATCH DETECTED!")
+            print(f"✅ FINAL DECISION: Using pattern -> {expected_answer}")
+            final_answer = expected_answer
+        elif expected_answer:
+            print("✅ VALIDATION: Pattern confirms Fanar")
+            final_answer = fanar_prediction
         else:
-            print(f"🔍 PATTERN: None found")
-            print(f"✅ FINAL: {original_prediction} (no pattern available)")
-            print("─" * 80)
-            return original_prediction
-    
+            print("ℹ️ NO PATTERN: Keeping Fanar prediction")
+            final_answer = fanar_prediction
+        
+        print(f"🎯 FINAL ANSWER: {final_answer}")
+        print("=" * 80)
+        return final_answer
+        
     except Exception as e:
-        print(f"🤖 FANAR: {original_prediction}")
         print(f"❌ VALIDATION ERROR: {e}")
-        print("─" * 80)
-        return original_prediction
+        print(f"✅ FALLBACK: Using Fanar -> {fanar_prediction}")
+        print("=" * 80)
+        return fanar_prediction
 
-# Statistics tracking (optional)
+# Statistics tracking
 class ValidationStats:
     def __init__(self):
+        self.reset()
+    
+    def reset(self):
         self.total_questions = 0
         self.corrections_made = 0
         self.validations_confirmed = 0
         self.no_pattern_available = 0
-        
-    def log_result(self, result_type):
+        self.validation_errors = 0
+    
+    def log_correction(self):
         self.total_questions += 1
-        if result_type == "corrected":
-            self.corrections_made += 1
-        elif result_type == "validated":
-            self.validations_confirmed += 1
-        elif result_type == "no_pattern":
-            self.no_pattern_available += 1
+        self.corrections_made += 1
+    
+    def log_validation(self):
+        self.total_questions += 1
+        self.validations_confirmed += 1
+    
+    def log_no_pattern(self):
+        self.total_questions += 1
+        self.no_pattern_available += 1
+    
+    def log_error(self):
+        self.total_questions += 1
+        self.validation_errors += 1
     
     def print_summary(self):
         if self.total_questions > 0:
-            print("\n" + "="*50)
-            print("📊 VALIDATION SUMMARY")
-            print("="*50)
-            print(f"Total questions: {self.total_questions}")
+            print("\n" + "="*60)
+            print("📊 SYMBOLIC VALIDATION SUMMARY")
+            print("="*60)
+            print(f"Total questions processed: {self.total_questions}")
             print(f"Corrections made: {self.corrections_made} ({self.corrections_made/self.total_questions*100:.1f}%)")
             print(f"Validations confirmed: {self.validations_confirmed} ({self.validations_confirmed/self.total_questions*100:.1f}%)")
             print(f"No pattern available: {self.no_pattern_available} ({self.no_pattern_available/self.total_questions*100:.1f}%)")
+            print(f"Validation errors: {self.validation_errors} ({self.validation_errors/self.total_questions*100:.1f}%)")
+            print("="*60)
 
-# Global stats tracker
+# Global stats instance
 validation_stats = ValidationStats()
 
-def get_prediction_fanar_validated_with_stats(question, choice1, choice2, choice3, choice4, choice5=None, choice6=None):
-    """
-    Validation with statistics tracking
-    """
-    result = get_prediction_fanar_validated(question, choice1, choice2, choice3, choice4, choice5, choice6)
-    
-    # Log statistics based on the output
-    # This is a simple heuristic - you can make it more sophisticated
-    if "CORRECTED" in str(result):
-        validation_stats.log_result("corrected")
-    elif "VALIDATED" in str(result):
-        validation_stats.log_result("validated")
-    else:
-        validation_stats.log_result("no_pattern")
-    
-    return result
+def get_validation_summary():
+    """Get validation statistics summary"""
+    return validation_stats.print_summary()

@@ -3,6 +3,7 @@
     "mistral": "N",
     "fanar_rag": "N",
     "fanar_validated": "Y",
+    fanar_validated_detailed: "N",
     "allam_7b": "N"
   },
   "paths": {
